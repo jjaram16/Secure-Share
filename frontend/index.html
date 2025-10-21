@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Secure Share</title>
+  <style>
+    body { font-family: system-ui; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    h1 { color: #333; }
+    button { margin: 5px; padding: 8px 12px; }
+    input { margin: 5px; padding: 6px; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Secure Share (Serverless MVP)</h1>
+
+  <button id="login">Login</button>
+  <span id="who"></span>
+
+  <h3>Upload</h3>
+  <input type="file" id="file"/>
+  <button id="upload">Upload</button>
+
+  <h3>Download</h3>
+  <input type="text" id="key" placeholder="Paste S3 key from upload alert"/>
+  <button id="dl">Get download link</button>
+  <div id="link"></div>
+
+  <script>
+  const API = "https://cr4jd3onsk.execute-api.us-east-1.amazonaws.com"; 
+
+  const COGNITO = {
+    domain: "https://us-east-1mrt91ptt5.auth.us-east-1.amazoncognito.com",
+    clientId: "6di8c4tc6lisv9vgi0q19dk0b4",
+    redirect: "http://localhost:5500",
+    scope: "openid email profile"
+  };
+
+  function login(){
+    const url =
+      `${COGNITO.domain}/oauth2/authorize` +
+      `?response_type=token` +
+      `&client_id=${encodeURIComponent(COGNITO.clientId)}` +
+      `&redirect_uri=${encodeURIComponent(COGNITO.redirect)}` +
+      `&scope=${encodeURIComponent(COGNITO.scope)}`;
+    console.log("Login URL:", url);
+    window.location = url;
+  }
+
+  function parseHash(){
+    if(location.hash.startsWith("#")){
+      const params = new URLSearchParams(location.hash.substring(1));
+      const token = params.get("id_token") || params.get("access_token");
+      if(token){
+        localStorage.setItem("jwt", token);
+        history.replaceState(null, "", location.pathname);
+        document.getElementById("who").textContent = "✅ Logged in";
+      }
+    }
+  }
+
+  async function upload(){
+    const f = document.getElementById("file").files[0];
+    if(!f) return alert("Choose a file first");
+    const jwt = localStorage.getItem("jwt");
+    if(!jwt) return alert("Login first");
+
+    const meta = await fetch(API + "/get-upload-url", {
+      method: "POST",
+      headers: {"Content-Type":"application/json","Authorization": `Bearer ${jwt}`},
+      body: JSON.stringify({filename: f.name, content_type: f.type || "application/octet-stream"})
+    }).then(r=>r.json());
+
+    await fetch(meta.upload_url, {
+      method:"PUT",
+      body: f,
+      headers: {"Content-Type": f.type || "application/octet-stream"}
+    });
+
+    alert("✅ Uploaded.\nS3 key:\n" + meta.key);
+  }
+
+  async function download(){
+    const key = document.getElementById("key").value.trim();
+    if(!key) return alert("Enter key");
+    const resp = await fetch(API + "/get-download-url?key=" + encodeURIComponent(key)).then(r=>r.json());
+    const a = document.createElement("a");
+    a.href = resp.download_url; a.textContent="⬇️ Download link"; a.target = "_blank";
+    const div = document.getElementById("link"); div.innerHTML = ""; div.appendChild(a);
+  }
+
+  document.getElementById("login").onclick = login;
+  document.getElementById("upload").onclick = upload;
+  document.getElementById("dl").onclick = download;
+  parseHash();
+  </script>
+</body>
+</html>
